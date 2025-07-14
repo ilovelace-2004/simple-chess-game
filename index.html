@@ -728,47 +728,55 @@
           console.log('Game is not active');
           return;
         }
-        
-        // En modo 1 jugador, no permitir mover piezas de la IA
-        if (this.gameState.gameMode === '1player') {
-          const piece = this.gameState.board[position.row][position.col];
-          if (piece && piece.color !== this.gameState.playerColor) {
-            console.log('Cannot move AI pieces');
-            return;
-          }
-        }
-        
+
         const { row, col } = position;
         const piece = this.gameState.board[row][col];
-        
-        if (!this.gameState.selectedPiece && piece && piece.color === this.gameState.turn) {
-          console.log(`Selecting piece at ${row},${col}`);
-          this.selectPiece(row, col);
-          return;
-        }
-        
+
+        // Si hay una pieza seleccionada
         if (this.gameState.selectedPiece) {
           const { selectedRow, selectedCol } = this.gameState.selectedPiece;
+          
+          // Si se hace clic en la misma casilla, deseleccionar
           if (selectedRow === row && selectedCol === col) {
             console.log('Deselecting piece');
             this.deselectPiece();
             return;
           }
-          
+
+          // Verificar si el movimiento es legal (incluye capturas)
+          if (this.isLegalMove(selectedRow, selectedCol, row, col)) {
+            console.log(`Making move from ${selectedRow},${selectedCol} to ${row},${col}`);
+            this.makeMove(selectedRow, selectedCol, row, col);
+            return;
+          }
+
+          // Si hay una pieza en la casilla y es del turno actual, cambiar selección
           if (piece && piece.color === this.gameState.turn) {
+            // En modo 1 jugador, solo permitir seleccionar piezas del jugador humano
+            if (this.gameState.gameMode === '1player' && piece.color !== this.gameState.playerColor) {
+              console.log('Cannot select AI pieces');
+              return;
+            }
             console.log(`Switching selection to piece at ${row},${col}`);
             this.deselectPiece();
             this.selectPiece(row, col);
             return;
           }
-          
-          if (this.isLegalMove(selectedRow, selectedCol, row, col)) {
-            console.log(`Making move from ${selectedRow},${selectedCol} to ${row},${col}`);
-            this.makeMove(selectedRow, selectedCol, row, col);
-          } else {
-            console.log('Invalid move attempted');
-            alert('Invalid move!');
+
+          console.log('Invalid move attempted');
+          alert('Invalid move!');
+          return;
+        }
+
+        // Si no hay pieza seleccionada, seleccionar una pieza del turno actual
+        if (piece && piece.color === this.gameState.turn) {
+          // En modo 1 jugador, solo permitir seleccionar piezas del jugador humano
+          if (this.gameState.gameMode === '1player' && piece.color !== this.gameState.playerColor) {
+            console.log('Cannot select AI pieces');
+            return;
           }
+          console.log(`Selecting piece at ${row},${col}`);
+          this.selectPiece(row, col);
         }
       }
 
@@ -1149,6 +1157,10 @@
 
       makeMove(fromRow, fromCol, toRow, toCol) {
         const movingPiece = this.gameState.board[fromRow][fromCol];
+        if (!movingPiece) {
+          console.error(`No hay pieza en ${fromRow},${fromCol}`);
+          return;
+        }
         
         // Verificar si es un enroque
         const moveData = this.getLegalMoves(fromRow, fromCol).find(m => 
@@ -1193,9 +1205,13 @@
         
         // Promoción de peón
         if (movingPiece.type === 'pawn' && ((movingPiece.color === 'white' && toRow === 0) || (movingPiece.color === 'black' && toRow === 7))) {
-          promotionType = prompt('Promote pawn to (queen, rook, knight, bishop):', 'queen')?.toLowerCase();
-          if (!promotionType || !['queen', 'rook', 'knight', 'bishop'].includes(promotionType)) {
-            promotionType = 'queen';
+          if (this.gameState.turn !== this.gameState.playerColor) {
+            promotionType = 'queen'; // Promoción automática a reina para la IA
+          } else {
+            promotionType = prompt('Promote pawn to (queen, rook, knight, bishop):', 'queen')?.toLowerCase();
+            if (!promotionType || !['queen', 'rook', 'knight', 'bishop'].includes(promotionType)) {
+              promotionType = 'queen';
+            }
           }
         }
         
@@ -1270,125 +1286,150 @@
       }
 
       makeAIMove() {
+        console.log('La IA está intentando realizar un movimiento');
         $('#loading').css('display', 'flex');
-        
+      
         // Retardo basado en dificultad
         const delay = this.gameState.difficulty === 'easy' ? 500 : 
-                     this.gameState.difficulty === 'medium' ? 750 : 1000;
-        
+                      this.gameState.difficulty === 'medium' ? 750 : 1000;
+      
         setTimeout(() => {
-          const availablePieces = [];
-          const captureMoves = [];
-          const checkMoves = [];
-          const opponentColor = this.gameState.playerColor === 'white' ? 'black' : 'white';
-          
-          // Encontrar todas las piezas de la IA y sus movimientos legales
-          for (let row = 0; row < 8; row++) {
-            for (let col = 0; col < 8; col++) {
-              const piece = this.gameState.board[row][col];
-              if (piece && piece.color !== this.gameState.playerColor) {
-                const legalMoves = this.getLegalMoves(row, col);
-                if (legalMoves.length > 0) {
-                  availablePieces.push({ row, col, legalMoves });
-                  
-                  // Clasificar movimientos
-                  legalMoves.forEach(move => {
-                    // Movimientos de captura
-                    if (this.gameState.board[move.row][move.col]) {
-                      captureMoves.push({ fromRow: row, fromCol: col, toRow: move.row, toCol: move.col });
-                    }
-                    
-                    // Simular movimiento para verificar jaque
-                    const originalPiece = this.gameState.board[move.row][move.col];
-                    this.gameState.board[move.row][move.col] = piece;
-                    this.gameState.board[row][col] = null;
-                    
-                    if (this.isKingInCheck(this.gameState.playerColor)) {
-                      checkMoves.push({ fromRow: row, fromCol: col, toRow: move.row, toCol: move.col });
-                    }
-                    
-                    // Revertir movimiento simulado
-                    this.gameState.board[row][col] = piece;
-                    this.gameState.board[move.row][move.col] = originalPiece;
-                  });
+          try {
+            const availablePieces = [];
+            const captureMoves = [];
+            const checkMoves = [];
+            const opponentColor = this.gameState.playerColor === 'white' ? 'black' : 'white';
+      
+            // Encontrar todas las piezas de la IA y sus movimientos legales
+            for (let row = 0; row < 8; row++) {
+              for (let col = 0; col < 8; col++) {
+                const piece = this.gameState.board[row][col];
+                if (piece && piece.color !== this.gameState.playerColor) {
+                  const legalMoves = this.getLegalMoves(row, col);
+                  console.log(`Pieza en ${row},${col} (${piece.type}, ${piece.color}) tiene ${legalMoves.length} movimientos legales`);
+                  if (legalMoves.length > 0) {
+                    availablePieces.push({ row, col, legalMoves });
+      
+                    // Clasificar movimientos
+                    legalMoves.forEach(move => {
+                      // Movimientos de captura
+                      if (this.gameState.board[move.row][move.col]) {
+                        captureMoves.push({ fromRow: row, fromCol: col, toRow: move.row, toCol: move.col });
+                      }
+      
+                      // Simular movimiento para verificar jaque
+                      const originalPiece = this.gameState.board[move.row][move.col];
+                      this.gameState.board[move.row][move.col] = piece;
+                      this.gameState.board[row][col] = null;
+      
+                      if (this.isKingInCheck(this.gameState.playerColor)) {
+                        checkMoves.push({ fromRow: row, fromCol: col, toRow: move.row, toCol: move.col });
+                      }
+      
+                      // Revertir movimiento simulado
+                      this.gameState.board[row][col] = piece;
+                      this.gameState.board[move.row][move.col] = originalPiece;
+                    });
+                  }
                 }
               }
             }
-          }
-          
-          let selectedMove = null;
-          
-          // Estrategia basada en dificultad
-          if (this.gameState.difficulty === 'easy') {
-            // IA fácil: movimientos aleatorios
-            if (availablePieces.length > 0) {
-              const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
-              const selectedPiece = availablePieces[randomPieceIndex];
-              const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
-              selectedMove = { 
-                fromRow: selectedPiece.row, 
-                fromCol: selectedPiece.col, 
-                ...selectedPiece.legalMoves[randomMoveIndex] 
-              };
-            }
-          } 
-          else if (this.gameState.difficulty === 'medium') {
-            // IA media: prioriza capturas, luego movimientos aleatorios
-            if (captureMoves.length > 0) {
-              selectedMove = captureMoves[Math.floor(Math.random() * captureMoves.length)];
-            } else if (availablePieces.length > 0) {
-              const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
-              const selectedPiece = availablePieces[randomPieceIndex];
-              const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
-              selectedMove = { 
-                fromRow: selectedPiece.row, 
-                fromCol: selectedPiece.col, 
-                ...selectedPiece.legalMoves[randomMoveIndex] 
-              };
-            }
-          } 
-          else if (this.gameState.difficulty === 'hard') {
-            // IA difícil: prioriza jaques, luego capturas valiosas, luego movimientos aleatorios
-            if (checkMoves.length > 0) {
-              selectedMove = checkMoves[Math.floor(Math.random() * checkMoves.length)];
-            } 
-            else if (captureMoves.length > 0) {
-              // Priorizar capturas de piezas más valiosas
-              const pieceValues = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 9, king: 100 };
-              let bestCapture = null;
-              let bestScore = -Infinity;
-              
-              for (const move of captureMoves) {
-                const capturedPiece = this.gameState.board[move.toRow][move.toCol];
-                const score = pieceValues[capturedPiece.type] || 0;
-                if (score > bestScore) {
-                  bestScore = score;
-                  bestCapture = move;
-                }
+      
+            console.log(`Total de piezas con movimientos: ${availablePieces.length}, Movimientos de captura: ${captureMoves.length}, Movimientos de jaque: ${checkMoves.length}`);
+      
+            let selectedMove = null;
+      
+            // Estrategia basada en dificultad
+            if (this.gameState.difficulty === 'easy') {
+              // IA fácil: movimientos aleatorios
+              if (availablePieces.length > 0) {
+                const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
+                const selectedPiece = availablePieces[randomPieceIndex];
+                const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
+                const move = selectedPiece.legalMoves[randomMoveIndex];
+                selectedMove = { 
+                  fromRow: selectedPiece.row, 
+                  fromCol: selectedPiece.col, 
+                  toRow: move.row, 
+                  toCol: move.col 
+                };
+                console.log(`Modo fácil: Movimiento seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
               }
-              
-              selectedMove = bestCapture;
             } 
-            else if (availablePieces.length > 0) {
-              const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
-              const selectedPiece = availablePieces[randomPieceIndex];
-              const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
-              selectedMove = { 
-                fromRow: selectedPiece.row, 
-                fromCol: selectedPiece.col, 
-                ...selectedPiece.legalMoves[randomMoveIndex] 
-              };
+            else if (this.gameState.difficulty === 'medium') {
+              // IA media: prioriza capturas, luego movimientos aleatorios
+              if (captureMoves.length > 0) {
+                selectedMove = captureMoves[Math.floor(Math.random() * captureMoves.length)];
+                console.log(`Modo medio: Movimiento de captura seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
+              } else if (availablePieces.length > 0) {
+                const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
+                const selectedPiece = availablePieces[randomPieceIndex];
+                const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
+                const move = selectedPiece.legalMoves[randomMoveIndex];
+                selectedMove = { 
+                  fromRow: selectedPiece.row, 
+                  fromCol: selectedPiece.col, 
+                  toRow: move.row, 
+                  toCol: move.col 
+                };
+                console.log(`Modo medio: Movimiento aleatorio seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
+              }
+            } 
+            else if (this.gameState.difficulty === 'hard') {
+              // IA difícil: prioriza jaques, luego capturas valiosas, luego movimientos aleatorios
+              if (checkMoves.length > 0) {
+                selectedMove = checkMoves[Math.floor(Math.random() * checkMoves.length)];
+                console.log(`Modo difícil: Movimiento de jaque seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
+              } 
+              else if (captureMoves.length > 0) {
+                // Priorizar capturas de piezas más valiosas
+                const pieceValues = { pawn: 1, knight: 3, bishop: 3, rook: 5, queen: 9, king: 100 };
+                let bestCapture = null;
+                let bestScore = -Infinity;
+      
+                for (const move of captureMoves) {
+                  const capturedPiece = this.gameState.board[move.toRow][move.toCol];
+                  const score = pieceValues[capturedPiece.type] || 0;
+                  if (score > bestScore) {
+                    bestScore = score;
+                    bestCapture = move;
+                  }
+                }
+      
+                selectedMove = bestCapture;
+                console.log(`Modo difícil: Movimiento de captura seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol} (puntuación: ${bestScore})`);
+              } 
+              else if (availablePieces.length > 0) {
+                const randomPieceIndex = Math.floor(Math.random() * availablePieces.length);
+                const selectedPiece = availablePieces[randomPieceIndex];
+                const randomMoveIndex = Math.floor(Math.random() * selectedPiece.legalMoves.length);
+                const move = selectedPiece.legalMoves[randomMoveIndex];
+                selectedMove = { 
+                  fromRow: selectedPiece.row, 
+                  fromCol: selectedPiece.col, 
+                  toRow: move.row, 
+                  toCol: move.col 
+                };
+                console.log(`Modo difícil: Movimiento aleatorio seleccionado de ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
+              }
             }
-          }
-          
-          if (selectedMove) {
-            this.makeMove(selectedMove.fromRow, selectedMove.fromCol, selectedMove.toRow, selectedMove.toCol);
-          } else {
+      
+            if (selectedMove) {
+              console.log(`IA realizando movimiento: ${selectedMove.fromRow},${selectedMove.fromCol} a ${selectedMove.toRow},${selectedMove.toCol}`);
+              this.makeMove(selectedMove.fromRow, selectedMove.fromCol, selectedMove.toRow, selectedMove.toCol);
+            } else {
+              console.log('No hay movimientos legales disponibles para la IA');
+              this.stopGame();
+              alert('¡No hay movimientos legales disponibles para la IA! El juego termina en empate.');
+            }
+      
+            $('#loading').css('display', 'none');
+          } catch (error) {
+            console.error('Error en makeAIMove:', error);
+            $('#loading').css('display', 'none');
             this.stopGame();
-            alert('No legal moves available! Game ends in a draw.');
+            alert('Ocurrió un error durante el movimiento de la IA. Juego detenido.');
           }
-          
-          $('#loading').css('display', 'none');
         }, delay);
       }
 
